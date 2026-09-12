@@ -5,9 +5,14 @@ export function useChatSocket(roomId, ownerToken, userInfo, onTerminated) {
   const [participantCount, setParticipantCount] = useState(1);
   const [status, setStatus] = useState('IDLE'); // IDLE | WAITING | JOINED | BLOCKED | DENIED
   const [attemptsLeft, setAttemptsLeft] = useState(3);
-  const [joinRequests, setJoinRequests] = useState([]); // Owner only: [{ requestId, userId, username, attemptsLeft }]
+  const [joinRequests, setJoinRequests] = useState([]);
 
   const socketRef = useRef(null);
+  const roomIdRef = useRef(roomId);
+
+  useEffect(() => {
+    roomIdRef.current = roomId;
+  }, [roomId]);
 
   useEffect(() => {
     if (!roomId || !userInfo) return;
@@ -18,23 +23,25 @@ export function useChatSocket(roomId, ownerToken, userInfo, onTerminated) {
 
     socket.onopen = () => {
       if (ownerToken) {
-        // Creator directly enters
-        socket.send(JSON.stringify({
-          type: 'JOIN_OWNER',
-          roomId,
-          ownerToken,
-          userId: userInfo.userId,
-          username: userInfo.username
-        }));
+        socket.send(
+          JSON.stringify({
+            type: 'JOIN_OWNER',
+            roomId,
+            ownerToken,
+            userId: userInfo.userId,
+            username: userInfo.username
+          })
+        );
       } else {
-        // Guest sends knock request
         setStatus('WAITING');
-        socket.send(JSON.stringify({
-          type: 'REQUEST_JOIN',
-          roomId,
-          userId: userInfo.userId,
-          username: userInfo.username
-        }));
+        socket.send(
+          JSON.stringify({
+            type: 'REQUEST_JOIN',
+            roomId,
+            userId: userInfo.userId,
+            username: userInfo.username
+          })
+        );
       }
     };
 
@@ -58,7 +65,6 @@ export function useChatSocket(roomId, ownerToken, userInfo, onTerminated) {
           break;
 
         case 'JOIN_REQUEST':
-          // Delivered to room owner
           setJoinRequests((prev) => [...prev, payload]);
           break;
 
@@ -96,30 +102,47 @@ export function useChatSocket(roomId, ownerToken, userInfo, onTerminated) {
     };
   }, [roomId, ownerToken, userInfo, onTerminated]);
 
-  const decideRequest = useCallback((requestId, approved) => {
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({
-        type: 'DECIDE_JOIN',
-        roomId,
-        ownerToken,
-        requestId,
-        approved
-      }));
-      setJoinRequests((prev) => prev.filter((r) => r.requestId !== requestId));
-    }
-  }, [roomId, ownerToken]);
+  const decideRequest = useCallback(
+    (requestId, approved) => {
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.send(
+          JSON.stringify({
+            type: 'DECIDE_JOIN',
+            roomId: roomIdRef.current,
+            ownerToken,
+            requestId,
+            approved
+          })
+        );
+        setJoinRequests((prev) => prev.filter((r) => r.requestId !== requestId));
+      }
+    },
+    [ownerToken]
+  );
 
   const sendMessage = useCallback((content) => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: 'SEND_MESSAGE', roomId, content }));
+      socketRef.current.send(
+        JSON.stringify({
+          type: 'SEND_MESSAGE',
+          roomId: roomIdRef.current,
+          content
+        })
+      );
     }
-  }, [roomId]);
+  }, []);
 
   const destroyRoom = useCallback(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN && ownerToken) {
-      socketRef.current.send(JSON.stringify({ type: 'DESTROY_ROOM', roomId, ownerToken }));
+      socketRef.current.send(
+        JSON.stringify({
+          type: 'DESTROY_ROOM',
+          roomId: roomIdRef.current,
+          ownerToken
+        })
+      );
     }
-  }, [roomId, ownerToken]);
+  }, [ownerToken]);
 
   return {
     messages,

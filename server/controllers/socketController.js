@@ -55,12 +55,21 @@ export function handleSocketConnection(ws) {
 
       // 4. Regular messaging
       if (type === 'SEND_MESSAGE') {
-        if (!ws.session || !ws.session.participantId) return;
-        const room = roomManager.getRoom(roomId);
-        const participant = room?.participants.get(ws.session.participantId);
+        const session = ws.session;
+        if (!session || !session.participantId || !session.roomId) {
+          console.warn('[SEND_MESSAGE DROPPED] Missing session or unapproved user:', session);
+          return;
+        }
+
+        const room = roomManager.getRoom(session.roomId);
+        if (!room) return;
+
+        const participant = room.participants.get(session.participantId);
         if (participant) {
-          const msg = roomManager.addMessage(ws.session.roomId, participant.username, data.content);
-          if (msg) roomManager.broadcast(ws.session.roomId, { type: 'NEW_MESSAGE', message: msg });
+          const msg = roomManager.addMessage(session.roomId, participant.username, data.content);
+          if (msg) {
+            roomManager.broadcast(session.roomId, { type: 'NEW_MESSAGE', message: msg });
+          }
         }
       }
 
