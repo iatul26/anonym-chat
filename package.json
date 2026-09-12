@@ -1,0 +1,14 @@
+{
+  "name": "anon-chat-backend",
+  "version": "1.0.0",
+  "description": "Anonymous Ephemeral Chat Application",
+  "type": "module",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}

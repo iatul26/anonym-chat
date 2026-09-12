@@ -11,7 +11,7 @@ export function useChatSocket(roomId, ownerToken, onTerminated) {
     if (!roomId) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${window.location.host}`);
+    const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
     socketRef.current = socket;
 
     socket.onopen = () => {
