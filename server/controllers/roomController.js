@@ -1,7 +1,11 @@
 import { roomManager } from '../services/roomManager.js';
 
 export const createRoomHandler = (req, res) => {
-  const data = roomManager.createRoom();
+  const { userId, username } = req.body;
+  if (!userId || !username) {
+    return res.status(400).json({ error: 'User identifier and name required.' });
+  }
+  const data = roomManager.createRoom(userId, username);
   res.status(201).json(data);
 };
 

@@ -1,21 +1,41 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 
-export function useChatSocket(roomId, ownerToken, onTerminated) {
+export function useChatSocket(roomId, ownerToken, userInfo, onTerminated) {
   const [messages, setMessages] = useState([]);
-  const [username, setUsername] = useState('');
   const [participantCount, setParticipantCount] = useState(1);
-  const [isConnected, setIsConnected] = useState(false);
+  const [status, setStatus] = useState('IDLE'); // IDLE | WAITING | JOINED | BLOCKED | DENIED
+  const [attemptsLeft, setAttemptsLeft] = useState(3);
+  const [joinRequests, setJoinRequests] = useState([]); // Owner only: [{ requestId, userId, username, attemptsLeft }]
+
   const socketRef = useRef(null);
 
   useEffect(() => {
-    if (!roomId) return;
+    if (!roomId || !userInfo) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
     socketRef.current = socket;
 
     socket.onopen = () => {
-      socket.send(JSON.stringify({ type: 'JOIN', roomId }));
+      if (ownerToken) {
+        // Creator directly enters
+        socket.send(JSON.stringify({
+          type: 'JOIN_OWNER',
+          roomId,
+          ownerToken,
+          userId: userInfo.userId,
+          username: userInfo.username
+        }));
+      } else {
+        // Guest sends knock request
+        setStatus('WAITING');
+        socket.send(JSON.stringify({
+          type: 'REQUEST_JOIN',
+          roomId,
+          userId: userInfo.userId,
+          username: userInfo.username
+        }));
+      }
     };
 
     socket.onmessage = (event) => {
@@ -23,13 +43,29 @@ export function useChatSocket(roomId, ownerToken, onTerminated) {
 
       switch (payload.type) {
         case 'JOIN_SUCCESS':
-          setUsername(payload.username);
+        case 'JOIN_APPROVED':
+          setStatus('JOINED');
           setMessages(payload.messages || []);
-          setIsConnected(true);
           break;
+
+        case 'JOIN_DENIED':
+          setStatus('DENIED');
+          setAttemptsLeft(payload.attemptsLeft);
+          break;
+
+        case 'REQUEST_BLOCKED':
+          setStatus('BLOCKED');
+          break;
+
+        case 'JOIN_REQUEST':
+          // Delivered to room owner
+          setJoinRequests((prev) => [...prev, payload]);
+          break;
+
         case 'NEW_MESSAGE':
           setMessages((prev) => [...prev, payload.message]);
           break;
+
         case 'USER_JOINED':
         case 'USER_LEFT':
           setParticipantCount(payload.participantCount);
@@ -42,9 +78,12 @@ export function useChatSocket(roomId, ownerToken, onTerminated) {
             }
           ]);
           break;
+
         case 'ROOM_DESTROYED':
+          setStatus('IDLE');
           onTerminated(payload.reason);
           break;
+
         default:
           break;
       }
@@ -55,13 +94,26 @@ export function useChatSocket(roomId, ownerToken, onTerminated) {
         socket.close();
       }
     };
-  }, [roomId, onTerminated]);
+  }, [roomId, ownerToken, userInfo, onTerminated]);
+
+  const decideRequest = useCallback((requestId, approved) => {
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({
+        type: 'DECIDE_JOIN',
+        roomId,
+        ownerToken,
+        requestId,
+        approved
+      }));
+      setJoinRequests((prev) => prev.filter((r) => r.requestId !== requestId));
+    }
+  }, [roomId, ownerToken]);
 
   const sendMessage = useCallback((content) => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: 'SEND_MESSAGE', content }));
+      socketRef.current.send(JSON.stringify({ type: 'SEND_MESSAGE', roomId, content }));
     }
-  }, []);
+  }, [roomId]);
 
   const destroyRoom = useCallback(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN && ownerToken) {
@@ -69,5 +121,14 @@ export function useChatSocket(roomId, ownerToken, onTerminated) {
     }
   }, [roomId, ownerToken]);
 
-  return { messages, username, participantCount, isConnected, sendMessage, destroyRoom };
+  return {
+    messages,
+    participantCount,
+    status,
+    attemptsLeft,
+    joinRequests,
+    decideRequest,
+    sendMessage,
+    destroyRoom
+  };
 }

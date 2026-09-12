@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export default function Lobby({ onCreateRoom, onJoinRoom, error }) {
+export default function Lobby({ userInfo, onCreateRoom, onJoinRoom, error }) {
   const [inputRoomId, setInputRoomId] = useState('');
 
   const handleJoin = (e) => {
@@ -10,9 +10,21 @@ export default function Lobby({ onCreateRoom, onJoinRoom, error }) {
 
   return (
     <div className="card shadow-sm p-4 border-0">
-      <div className="text-center mb-4">
-        <h4 className="fw-bold">Start an Anonymous Chat</h4>
-        <p className="text-muted small">No accounts. Instant setup. Ephemeral memory.</p>
+      {/* Requirement 3: User ID informed beforehand */}
+      <div className="alert alert-info py-2 d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <div className="small text-muted">Your Unique Anonymous ID:</div>
+          <code className="fw-bold">{userInfo.userId}</code>
+        </div>
+        <div className="text-end">
+          <div className="small text-muted">Temporary Handle:</div>
+          <strong>{userInfo.username}</strong>
+        </div>
+      </div>
+
+      <div className="text-center mb-3">
+        <h4 className="fw-bold">Anonymous Ephemeral Chat</h4>
+        <p className="text-muted small">Instant encrypted memory rooms. Zero accounts required.</p>
       </div>
 
       {error && <div className="alert alert-danger py-2 text-center">{error}</div>}
@@ -38,7 +50,7 @@ export default function Lobby({ onCreateRoom, onJoinRoom, error }) {
             onChange={(e) => setInputRoomId(e.target.value)}
           />
           <button className="btn btn-outline-secondary" type="submit">
-            Join
+            Request to Join
           </button>
         </div>
       </form>
