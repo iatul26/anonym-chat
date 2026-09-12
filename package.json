@@ -4,7 +4,7 @@
   "type": "module",
   "main": "server/server.js",
   "scripts": {
-    "build": "npm --prefix client install && npm --prefix client run build",
+    "build": "npm install && cd client && npm install && npx vite build",
     "start": "node server/server.js"
   },
   "dependencies": {
