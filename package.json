@@ -1,10 +1,10 @@
 {
-  "name": "anon-chat-backend",
+  "name": "anon-chat",
   "version": "1.0.0",
-  "description": "Anonymous Ephemeral Chat Application",
   "type": "module",
   "main": "server/server.js",
   "scripts": {
+    "build": "npm --prefix client install && npm --prefix client run build",
     "start": "node server/server.js"
   },
   "dependencies": {
