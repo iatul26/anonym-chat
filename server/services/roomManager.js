@@ -95,6 +95,13 @@ class RoomManager {
 
     if (approved) {
       const participantId = crypto.randomBytes(8).toString('hex');
+
+      // Link the participantId directly to the guest's active socket session
+      if (request.socket.session) {
+        request.socket.session.participantId = participantId;
+        request.socket.session.isPending = false;
+      }
+
       room.participants.set(participantId, {
         socket: request.socket,
         userId: request.userId,

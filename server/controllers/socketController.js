@@ -1,7 +1,8 @@
 import { roomManager } from '../services/roomManager.js';
 
 export function handleSocketConnection(ws) {
-  let session = null;
+  // Attach session directly to ws instance
+  ws.session = null;
 
   ws.on('message', (raw) => {
     try {
@@ -17,7 +18,7 @@ export function handleSocketConnection(ws) {
         }
 
         const result = roomManager.addOwnerParticipant(roomId, ws, data.userId, data.username);
-        session = { roomId, participantId: result.participantId, isOwner: true };
+        ws.session = { roomId, participantId: result.participantId, isOwner: true };
 
         ws.send(JSON.stringify({
           type: 'JOIN_SUCCESS',
@@ -39,7 +40,7 @@ export function handleSocketConnection(ws) {
         if (res.status === 'BLOCKED') {
           ws.send(JSON.stringify({ type: 'REQUEST_BLOCKED', message: res.message }));
         } else if (res.status === 'WAITING') {
-          session = { roomId, isPending: true, requestId: res.requestId };
+          ws.session = { roomId, isPending: true, requestId: res.requestId };
           ws.send(JSON.stringify({ type: 'WAITING_FOR_APPROVAL' }));
         }
       }
@@ -54,12 +55,12 @@ export function handleSocketConnection(ws) {
 
       // 4. Regular messaging
       if (type === 'SEND_MESSAGE') {
-        if (!session || !session.participantId) return;
+        if (!ws.session || !ws.session.participantId) return;
         const room = roomManager.getRoom(roomId);
-        const participant = room?.participants.get(session.participantId);
+        const participant = room?.participants.get(ws.session.participantId);
         if (participant) {
-          const msg = roomManager.addMessage(session.roomId, participant.username, data.content);
-          if (msg) roomManager.broadcast(session.roomId, { type: 'NEW_MESSAGE', message: msg });
+          const msg = roomManager.addMessage(ws.session.roomId, participant.username, data.content);
+          if (msg) roomManager.broadcast(ws.session.roomId, { type: 'NEW_MESSAGE', message: msg });
         }
       }
 
@@ -75,8 +76,8 @@ export function handleSocketConnection(ws) {
   });
 
   ws.on('close', () => {
-    if (!session) return;
-    const { roomId, participantId } = session;
+    if (!ws.session) return;
+    const { roomId, participantId } = ws.session;
     if (participantId) {
       const { roomDestroyed, username, remainingCount } = roomManager.removeParticipant(roomId, participantId);
       if (!roomDestroyed && username) {
