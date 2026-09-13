@@ -3,9 +3,11 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 export function useChatSocket(roomId, ownerToken, userInfo, onTerminated) {
   const [messages, setMessages] = useState([]);
   const [participantCount, setParticipantCount] = useState(1);
-  const [status, setStatus] = useState('IDLE'); // IDLE | WAITING | JOINED | BLOCKED | DENIED
+  const [status, setStatus] = useState('IDLE');
   const [attemptsLeft, setAttemptsLeft] = useState(3);
   const [joinRequests, setJoinRequests] = useState([]);
+  const [ownerNotice, setOwnerNotice] = useState(null);
+  const [errorMessage, setErrorMessage] = useState(null);
 
   const socketRef = useRef(null);
   const roomIdRef = useRef(roomId);
@@ -23,6 +25,7 @@ export function useChatSocket(roomId, ownerToken, userInfo, onTerminated) {
 
     socket.onopen = () => {
       if (ownerToken) {
+        // Owner joins or rejoins
         socket.send(
           JSON.stringify({
             type: 'JOIN_OWNER',
@@ -85,6 +88,19 @@ export function useChatSocket(roomId, ownerToken, userInfo, onTerminated) {
           ]);
           break;
 
+        case 'OWNER_STATUS_CHANGED':
+          if (!payload.isOwnerPresent) {
+            setOwnerNotice(payload.message);
+          } else {
+            setOwnerNotice(null);
+          }
+          break;
+
+        case 'ERROR':
+          setErrorMessage(payload.message);
+          setTimeout(() => setErrorMessage(null), 4000);
+          break;
+
         case 'ROOM_DESTROYED':
           setStatus('IDLE');
           onTerminated(payload.reason);
@@ -125,7 +141,6 @@ export function useChatSocket(roomId, ownerToken, userInfo, onTerminated) {
       socketRef.current.send(
         JSON.stringify({
           type: 'SEND_MESSAGE',
-          roomId: roomIdRef.current,
           content
         })
       );
@@ -150,6 +165,8 @@ export function useChatSocket(roomId, ownerToken, userInfo, onTerminated) {
     status,
     attemptsLeft,
     joinRequests,
+    ownerNotice,
+    errorMessage,
     decideRequest,
     sendMessage,
     destroyRoom

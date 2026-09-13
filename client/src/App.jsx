@@ -26,8 +26,9 @@ function getOrCreateUserIdentity() {
 
 export default function App() {
   const [userInfo, setUserInfo] = useState(null);
-  const [activeRoomId, setActiveRoomId] = useState('');
-  const [ownerToken, setOwnerToken] = useState(null);
+  const [activeRoomId, setActiveRoomId] = useState(() => sessionStorage.getItem('anon_active_room') || '');
+  const [ownerToken, setOwnerToken] = useState(() => sessionStorage.getItem('anon_owner_token') || null);
+  const [savedOwnerRoom, setSavedOwnerRoom] = useState(() => sessionStorage.getItem('anon_owner_room') || null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -38,6 +39,10 @@ export default function App() {
     alert(reason || 'Room closed.');
     setActiveRoomId('');
     setOwnerToken(null);
+    setSavedOwnerRoom(null);
+    sessionStorage.removeItem('anon_active_room');
+    sessionStorage.removeItem('anon_owner_token');
+    sessionStorage.removeItem('anon_owner_room');
   }, []);
 
   const {
@@ -46,6 +51,8 @@ export default function App() {
     status,
     attemptsLeft,
     joinRequests,
+    ownerNotice,
+    errorMessage,
     decideRequest,
     sendMessage,
     destroyRoom
@@ -61,9 +68,20 @@ export default function App() {
       const data = await res.json();
       setOwnerToken(data.ownerToken);
       setActiveRoomId(data.roomId);
+      setSavedOwnerRoom(data.roomId);
+      sessionStorage.setItem('anon_active_room', data.roomId);
+      sessionStorage.setItem('anon_owner_token', data.ownerToken);
+      sessionStorage.setItem('anon_owner_room', data.roomId);
       setError('');
     } catch {
       setError('Failed to create room.');
+    }
+  };
+
+  const rejoinAsOwner = () => {
+    if (savedOwnerRoom && ownerToken) {
+      setActiveRoomId(savedOwnerRoom);
+      sessionStorage.setItem('anon_active_room', savedOwnerRoom);
     }
   };
 
@@ -72,6 +90,7 @@ export default function App() {
       const res = await fetch(`/api/rooms/${roomId}/verify`);
       if (!res.ok) throw new Error();
       setActiveRoomId(roomId);
+      sessionStorage.setItem('anon_active_room', roomId);
       setError('');
     } catch {
       setError('Room ID not found or already closed.');
@@ -80,20 +99,35 @@ export default function App() {
 
   const leaveRoom = () => {
     setActiveRoomId('');
-    setOwnerToken(null);
+    sessionStorage.removeItem('anon_active_room');
   };
 
   if (!userInfo) return null;
 
   return (
     <div className="container py-4" style={{ maxWidth: '640px' }}>
+      {/* Toast Alert for Rate Limits or Oversized Messages */}
+      {errorMessage && (
+        <div className="alert alert-warning py-2 text-center shadow-sm position-sticky top-0 z-3">
+          {errorMessage}
+        </div>
+      )}
+
       {!activeRoomId ? (
-        <Lobby
-          userInfo={userInfo}
-          onCreateRoom={createRoom}
-          onJoinRoom={joinRoom}
-          error={error}
-        />
+        <>
+          {savedOwnerRoom && ownerToken && (
+            <div className="alert alert-info d-flex justify-content-between align-items-center mb-3">
+              <div>
+                <strong>You own an active room:</strong> <code>{savedOwnerRoom}</code>
+                <div className="small text-muted">Rejoin within the 1-minute grace window if you left.</div>
+              </div>
+              <button onClick={rejoinAsOwner} className="btn btn-primary btn-sm">
+                Rejoin My Room
+              </button>
+            </div>
+          )}
+          <Lobby userInfo={userInfo} onCreateRoom={createRoom} onJoinRoom={joinRoom} error={error} />
+        </>
       ) : status === 'WAITING' ? (
         <div className="card shadow-sm p-4 text-center">
           <div className="spinner-border text-primary mx-auto mb-3" role="status"></div>
@@ -130,7 +164,14 @@ export default function App() {
             onLeave={leaveRoom}
           />
 
-          {/* Owner Decision Bar */}
+          {/* Owner Disconnect Grace Banner */}
+          {ownerNotice && (
+            <div className="alert alert-warning py-2 mb-0 border-0 rounded-0 text-center small fw-semibold">
+              ⚠️ {ownerNotice}
+            </div>
+          )}
+
+          {/* Pending Requests Panel */}
           {ownerToken && joinRequests.length > 0 && (
             <div className="bg-light border-bottom p-2">
               <div className="fw-bold small text-muted mb-1">Pending Entry Requests:</div>

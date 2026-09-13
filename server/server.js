@@ -27,7 +27,7 @@ app.get('*', (req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-wss.on('connection', handleSocketConnection);
+wss.on('connection', (ws, req) => handleSocketConnection(ws, req));
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Privacy-first chat server running on port ${PORT}`));

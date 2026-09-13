@@ -18,11 +18,15 @@ class RoomManager {
       id: roomId,
       ownerToken,
       ownerUserId,
+      ownerUsername,
+      isOwnerPresent: false,
+      destructionTimer: null,
       createdAt: Date.now(),
       lastActivity: Date.now(),
-      participants: new Map(),        // participantId -> { socket, userId, username, joinedAt, isOwner }
-      pendingRequests: new Map(),     // requestId -> { socket, userId, username }
-      requestAttempts: new Map(),     // userId -> count
+      currentSizeBytes: 0,
+      participants: new Map(),
+      pendingRequests: new Map(),
+      requestAttempts: new Map(),
       messages: []
     };
 
@@ -38,7 +42,39 @@ class RoomManager {
     return this.rooms.has(roomId);
   }
 
-  // Request access to enter room
+  // Owner joins or rejoins during grace period
+  addOrRejoinOwner(roomId, socket, ownerToken, userId, username) {
+    const room = this.rooms.get(roomId);
+    if (!room || room.ownerToken !== ownerToken) return null;
+
+    // Cancel destruction timer if owner rejoined in time
+    if (room.destructionTimer) {
+      clearTimeout(room.destructionTimer);
+      room.destructionTimer = null;
+    }
+
+    room.isOwnerPresent = true;
+    room.lastActivity = Date.now();
+
+    const participantId = crypto.randomBytes(8).toString('hex');
+    room.participants.set(participantId, {
+      socket,
+      userId,
+      username,
+      joinedAt: Date.now(),
+      isOwner: true
+    });
+
+    // Notify participants that the owner returned
+    this.broadcast(roomId, {
+      type: 'OWNER_STATUS_CHANGED',
+      isOwnerPresent: true,
+      message: 'The room owner has returned. Room timer cancelled.'
+    });
+
+    return { participantId, messages: room.messages, isOwner: true };
+  }
+
   requestJoin(roomId, socket, userId, username) {
     const room = this.rooms.get(roomId);
     if (!room) return { status: 'ERROR', message: 'Room not found.' };
@@ -48,13 +84,10 @@ class RoomManager {
       return { status: 'BLOCKED', message: 'Maximum join requests exceeded for this room.' };
     }
 
-    // Increment attempts
     room.requestAttempts.set(userId, attempts + 1);
-
     const requestId = crypto.randomBytes(8).toString('hex');
     room.pendingRequests.set(requestId, { socket, userId, username });
 
-    // Notify the room owner
     this.notifyOwner(roomId, {
       type: 'JOIN_REQUEST',
       requestId,
@@ -66,24 +99,6 @@ class RoomManager {
     return { status: 'WAITING', requestId };
   }
 
-  // Owner directly joins without knocking
-  addOwnerParticipant(roomId, socket, userId, username) {
-    const room = this.rooms.get(roomId);
-    if (!room) return null;
-
-    const participantId = crypto.randomBytes(8).toString('hex');
-    room.participants.set(participantId, {
-      socket,
-      userId,
-      username,
-      joinedAt: Date.now(),
-      isOwner: true
-    });
-    room.lastActivity = Date.now();
-    return { participantId, messages: room.messages };
-  }
-
-  // Owner decision
   handleDecision(roomId, ownerToken, requestId, approved) {
     const room = this.rooms.get(roomId);
     if (!room || room.ownerToken !== ownerToken) return false;
@@ -95,8 +110,6 @@ class RoomManager {
 
     if (approved) {
       const participantId = crypto.randomBytes(8).toString('hex');
-
-      // Link the participantId directly to the guest's active socket session
       if (request.socket.session) {
         request.socket.session.participantId = participantId;
         request.socket.session.isPending = false;
@@ -138,6 +151,39 @@ class RoomManager {
     return true;
   }
 
+  addMessage(roomId, sender, content) {
+    const room = this.rooms.get(roomId);
+    if (!room) return { error: 'Room not found.' };
+
+    const rawString = String(content || '').trim();
+    const byteSize = Buffer.byteLength(rawString, 'utf8');
+
+    if (byteSize === 0) return { error: 'Message cannot be empty.' };
+    if (byteSize > CONFIG.MAX_MESSAGE_BYTES) {
+      return { error: `Message exceeds size limit of ${CONFIG.MAX_MESSAGE_BYTES} bytes.` };
+    }
+
+    const message = {
+      id: crypto.randomUUID(),
+      sender,
+      content: rawString,
+      timestamp: Date.now(),
+      byteSize
+    };
+
+    // FIFO Automatic Message Purge
+    while (room.messages.length > 0 && room.currentSizeBytes + byteSize > CONFIG.MAX_ROOM_BYTES) {
+      const oldest = room.messages.shift();
+      room.currentSizeBytes -= (oldest.byteSize || 0);
+    }
+
+    room.messages.push(message);
+    room.currentSizeBytes += byteSize;
+    room.lastActivity = Date.now();
+
+    return { message };
+  }
+
   removeParticipant(roomId, participantId) {
     const room = this.rooms.get(roomId);
     if (!room) return { roomDestroyed: false, username: null };
@@ -145,17 +191,30 @@ class RoomManager {
     const participant = room.participants.get(participantId);
     if (!participant) return { roomDestroyed: false, username: null };
 
-    const isOwner = participant.isOwner;
-    const username = participant.username;
+    const { isOwner, username } = participant;
     room.participants.delete(participantId);
 
-    // Requirement 1: Room gets destroyed as the owner leaves
+    // Feature 1: Owner leaves -> Grace period timer starts
     if (isOwner) {
-      this.destroyRoom(roomId, 'Room owner left the chat. Room closed.');
-      return { roomDestroyed: true, username, wasOwner: true };
+      room.isOwnerPresent = false;
+
+      // Start 1-minute grace period timer
+      room.destructionTimer = setTimeout(() => {
+        this.destroyRoom(roomId, 'Owner did not return within 1 minute. Room destroyed.');
+      }, CONFIG.OWNER_GRACE_PERIOD_MS);
+
+      this.broadcast(roomId, {
+        type: 'OWNER_STATUS_CHANGED',
+        isOwnerPresent: false,
+        gracePeriodMs: CONFIG.OWNER_GRACE_PERIOD_MS,
+        message: 'Owner disconnected. Room will self-destruct in 1 minute unless the owner returns.'
+      });
+
+      return { roomDestroyed: false, username, wasOwner: true, remainingCount: room.participants.size };
     }
 
-    if (room.participants.size === 0) {
+    // If non-owner leaves and room is empty and owner is also gone, clean up
+    if (room.participants.size === 0 && !room.isOwnerPresent) {
       this.destroyRoom(roomId, 'All participants left.');
       return { roomDestroyed: true, username, wasOwner: false };
     }
@@ -171,25 +230,6 @@ class RoomManager {
         p.socket.send(JSON.stringify(payload));
       }
     }
-  }
-
-  addMessage(roomId, sender, content) {
-    const room = this.rooms.get(roomId);
-    if (!room) return null;
-
-    const sanitized = String(content || '').slice(0, CONFIG.MAX_MESSAGE_LENGTH).trim();
-    if (!sanitized) return null;
-
-    const message = {
-      id: crypto.randomUUID(),
-      sender,
-      content: sanitized,
-      timestamp: Date.now()
-    };
-
-    room.messages.push(message);
-    room.lastActivity = Date.now();
-    return message;
   }
 
   broadcast(roomId, payload) {
@@ -208,9 +248,13 @@ class RoomManager {
     const room = this.rooms.get(roomId);
     if (!room) return;
 
+    if (room.destructionTimer) {
+      clearTimeout(room.destructionTimer);
+      room.destructionTimer = null;
+    }
+
     this.broadcast(roomId, { type: 'ROOM_DESTROYED', reason });
 
-    // Notify any users still waiting in the knock queue
     for (const [, req] of room.pendingRequests) {
       if (req.socket.readyState === WebSocket.OPEN) {
         req.socket.send(JSON.stringify({ type: 'ROOM_DESTROYED', reason }));
@@ -226,6 +270,7 @@ class RoomManager {
     room.pendingRequests.clear();
     room.requestAttempts.clear();
     room.messages = [];
+    room.currentSizeBytes = 0;
     this.rooms.delete(roomId);
   }
 
@@ -234,7 +279,7 @@ class RoomManager {
       const now = Date.now();
       for (const [id, room] of this.rooms.entries()) {
         if (now - room.lastActivity > CONFIG.ROOM_TTL_MS) {
-          this.destroyRoom(id, 'Room closed due to inactivity');
+          this.destroyRoom(id, 'Room closed due to total inactivity');
         }
       }
     }, CONFIG.REAPER_INTERVAL_MS);
