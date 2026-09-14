@@ -1,4 +1,4 @@
-# AnonymChat — Ephemeral, Private Group Messaging
+# AnonymChat — Ephemeral Private Group Messaging
 
 AnonymChat is a lightweight, privacy-first real-time chat web application built with Node.js, Express, WebSockets (`ws`), and React (Vite). It operates on a strict **zero-persistence architecture**: no databases, no authentication systems, no tracking cookies, and no disk logs. All chat data lives exclusively in volatile server RAM and is permanently purged once a session ends.
 
