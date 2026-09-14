@@ -1,7 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 export default function Lobby({ userInfo, onCreateRoom, onJoinRoom, error }) {
   const [inputRoomId, setInputRoomId] = useState('');
+
+  // Auto-fill Room ID if accessed via invite link (?room=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    if (roomParam) {
+      setInputRoomId(roomParam.trim());
+    }
+  }, []);
 
   const handleJoin = (e) => {
     e.preventDefault();
@@ -10,7 +19,6 @@ export default function Lobby({ userInfo, onCreateRoom, onJoinRoom, error }) {
 
   return (
     <div className="card shadow-sm p-4 border-0">
-      {/* Requirement 3: User ID informed beforehand */}
       <div className="alert alert-info py-2 d-flex justify-content-between align-items-center mb-3">
         <div>
           <div className="small text-muted">Your Unique Anonymous ID:</div>

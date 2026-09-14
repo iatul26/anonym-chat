@@ -35,15 +35,22 @@ export default function App() {
     setUserInfo(getOrCreateUserIdentity());
   }, []);
 
+  const clearUrlParams = () => {
+  if (window.location.search) {
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+};
+
   const handleTerminated = useCallback((reason) => {
-    alert(reason || 'Room closed.');
-    setActiveRoomId('');
-    setOwnerToken(null);
-    setSavedOwnerRoom(null);
-    sessionStorage.removeItem('anon_active_room');
-    sessionStorage.removeItem('anon_owner_token');
-    sessionStorage.removeItem('anon_owner_room');
-  }, []);
+  alert(reason || 'Room closed.');
+  setActiveRoomId('');
+  setOwnerToken(null);
+  setSavedOwnerRoom(null);
+  sessionStorage.removeItem('anon_active_room');
+  sessionStorage.removeItem('anon_owner_token');
+  sessionStorage.removeItem('anon_owner_room');
+  clearUrlParams();
+}, []);
 
   const {
     messages,
@@ -98,9 +105,10 @@ export default function App() {
   };
 
   const leaveRoom = () => {
-    setActiveRoomId('');
-    sessionStorage.removeItem('anon_active_room');
-  };
+  setActiveRoomId('');
+  sessionStorage.removeItem('anon_active_room');
+  clearUrlParams();
+};
 
   if (!userInfo) return null;
 
