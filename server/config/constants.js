@@ -1,6 +1,6 @@
 export const CONFIG = {
   // Room & Identity Tokens
-  ROOM_ID_BYTES: 6,
+  ROOM_ID_BYTES: 4,
   OWNER_TOKEN_BYTES: 32,
 
   // Grace Period & Lifecycles
